@@ -34,8 +34,6 @@ const port = process.env.PORT || 5001;
 // ============================================================
 // [2] CORS — ล็อกให้เฉพาะ frontend ของเราเท่านั้น
 // ============================================================
-// ก่อนแก้: app.use(cors())  → อนุญาตทุก origin (อันตราย!)
-// หลังแก้: อนุญาตเฉพาะ domain ที่กำหนด
 const allowedOrigins = [
   FRONTEND_URL,
   'http://localhost:3000',  // สำหรับ dev เท่านั้น
@@ -43,8 +41,6 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // อนุญาต request ที่ไม่มี origin (เช่น Postman, server-to-server)
-    // ในระบบ production จริงควรปิดด้วย
     if (!origin) return callback(null, true);
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
@@ -57,12 +53,8 @@ app.use(cors({
 app.use(express.json());
 
 // ============================================================
-// [3] RATE LIMITING — จำกัดจำนวน request ป้องกัน brute force
+// [3] RATE LIMITING
 // ============================================================
-// ก่อนแก้: ไม่มี rate limit เลย
-// หลังแก้: จำกัด request ต่อ IP
-
-// สำหรับ API ทั่วไป — 100 requests ต่อ 15 นาที
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
@@ -71,7 +63,6 @@ const generalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// สำหรับ login — 10 ครั้งต่อ 15 นาที (ป้องกัน brute force รหัสผ่าน)
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -80,7 +71,6 @@ const loginLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-// สำหรับ Danger Zone — 5 ครั้งต่อชั่วโมง
 const dangerLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
   max: 5,
@@ -94,9 +84,6 @@ app.use('/api/', generalLimiter);
 // ============================================================
 // [4] JWT AUTHENTICATION MIDDLEWARE
 // ============================================================
-// ก่อนแก้: admin API ไม่มีการตรวจสอบเลย ใครก็เรียกได้
-// หลังแก้: ทุก request ไป /api/admin/* ต้องมี JWT token ใน header
-
 function authenticateAdmin(req, res, next) {
   const authHeader = req.headers.authorization;
 
@@ -124,9 +111,6 @@ function authenticateAdmin(req, res, next) {
 // ============================================================
 // [5] INPUT VALIDATION HELPERS
 // ============================================================
-// ก่อนแก้: req.body ถูกส่งตรงไป Firestore โดยไม่ตรวจสอบ
-// หลังแก้: ตรวจสอบ field ที่อนุญาตเท่านั้น + sanitize ค่า
-
 function sanitizeString(str, maxLen = 200) {
   if (typeof str !== 'string') return '';
   return str.trim().slice(0, maxLen);
@@ -138,7 +122,6 @@ function sanitizeNumber(val, min = 0, max = 99999) {
   return Math.max(min, Math.min(max, num));
 }
 
-// อนุญาตเฉพาะ field เหล่านี้สำหรับ item
 const ALLOWED_ITEM_FIELDS = ['itemId', 'type', 'name', 'color', 'imageUrl', 'status', 'consumable', 'stock', 'initialStock', 'number'];
 
 function validateItemData(body) {
@@ -157,15 +140,11 @@ function validateItemData(body) {
   return clean;
 }
 
-// อนุญาตเฉพาะ collection เหล่านี้สำหรับ danger/clear
-const ALLOWED_CLEAR_COLLECTIONS = ['bookings', 'users'];  // ห้ามลบ items, settings, roster
+const ALLOWED_CLEAR_COLLECTIONS = ['bookings', 'users'];
 
 // ============================================================
-// [6] ADMIN LOGIN ENDPOINT — สร้าง JWT token
+// [6] ADMIN LOGIN
 // ============================================================
-// ก่อนแก้: รหัสผ่านเช็คบน frontend (ใน source code!)
-// หลังแก้: เช็คบน server, return JWT token ที่มีอายุ 8 ชั่วโมง
-
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { password } = req.body;
 
@@ -177,7 +156,6 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
     return res.status(401).json({ error: 'รหัสผ่านไม่ถูกต้อง' });
   }
 
-  // สร้าง JWT token อายุ 8 ชั่วโมง
   const token = jwt.sign(
     { role: 'admin', loginAt: Date.now() },
     JWT_SECRET,
@@ -188,7 +166,7 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
 });
 
 // ============================================================
-// [7] PUBLIC ROUTES — ไม่ต้องมี token (สำหรับผู้ใช้ทั่วไป)
+// [7] PUBLIC ROUTES
 // ============================================================
 
 app.get('/api/items', async (req, res) => {
@@ -214,11 +192,31 @@ app.get('/api/settings/config', async (req, res) => {
   } catch (error) { res.status(500).json({ error: error.message }); }
 });
 
+// ★ [เพิ่มใหม่] — บันทึก/อัปเดต user เมื่อเข้าสู่ระบบ
+// เพื่อให้หน้า admin เห็นผู้ใช้ในระบบ
+app.post('/api/users/register', async (req, res) => {
+  const studentId = sanitizeString(req.body.studentId, 20);
+  const fullName = sanitizeString(req.body.fullName, 200);
+  const yearOfStudy = sanitizeString(req.body.yearOfStudy, 5);
+
+  if (!studentId || !fullName) return res.status(400).json({ error: "ข้อมูลไม่ครบ" });
+  if (!/^\d{10}$/.test(studentId)) return res.status(400).json({ error: "รหัสนักศึกษาต้องเป็น 10 หลัก" });
+
+  try {
+    await db.collection('users').doc(studentId).set({
+      studentId, fullName, yearOfStudy,
+      lastLoginAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+    res.json({ message: "บันทึกข้อมูลผู้ใช้สำเร็จ" });
+  } catch (error) { res.status(500).json({ error: error.message }); }
+});
+
+// ★ [แก้ไข] — borrow ใช้ transaction ป้องกัน race condition
 app.post('/api/borrow', async (req, res) => {
-  // --- Input Validation เพิ่มใหม่ ---
   const itemId = sanitizeString(req.body.itemId, 100);
   const studentId = sanitizeString(req.body.studentId, 20);
   const studentName = sanitizeString(req.body.studentName, 200);
+  const yearOfStudy = sanitizeString(req.body.yearOfStudy, 5);
   const qty = sanitizeNumber(req.body.qty, 1, 100);
   const startTime = sanitizeString(req.body.startTime, 30);
   const endTime = sanitizeString(req.body.endTime, 30);
@@ -228,30 +226,44 @@ app.post('/api/borrow', async (req, res) => {
 
   try {
     const itemRef = db.collection('items').doc(itemId);
-    const doc = await itemRef.get();
-    if (!doc.exists) return res.status(404).json({ error: "ไม่พบอุปกรณ์" });
-    const itemData = doc.data();
 
-    if (itemData.consumable) {
-      if (itemData.stock < qty) return res.status(400).json({ error: "สต็อกไม่พอ" });
-      await itemRef.update({ stock: admin.firestore.FieldValue.increment(-qty) });
-      await db.collection('bookings').add({
-        itemId: itemData.itemId, itemName: itemData.name, itemType: itemData.type,
-        studentId, studentName, quantity: qty, consumable: true, status: "Consumed",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      res.json({ message: "เบิกสำเร็จ" });
-    } else {
-      if (itemData.status === 'Borrowed') return res.status(400).json({ error: "ถูกยืมไปแล้ว" });
-      await itemRef.update({ status: 'Borrowed' });
-      await db.collection('bookings').add({
-        itemId: itemData.itemId, itemName: itemData.name, itemType: itemData.type,
-        studentId, studentName, startTime, endTime, status: "Active",
-        createdAt: admin.firestore.FieldValue.serverTimestamp()
-      });
-      res.json({ message: "ยืมสำเร็จ" });
-    }
-  } catch (error) { res.status(500).json({ error: error.message }); }
+    // ใช้ transaction เพื่อป้องกัน 2 คนยืมพร้อมกัน
+    const result = await db.runTransaction(async (t) => {
+      const doc = await t.get(itemRef);
+      if (!doc.exists) throw new Error("ไม่พบอุปกรณ์");
+      const itemData = doc.data();
+
+      if (itemData.consumable) {
+        if (itemData.stock < qty) throw new Error("สต็อกไม่พอ");
+        t.update(itemRef, { stock: admin.firestore.FieldValue.increment(-qty) });
+        const newBookingRef = db.collection('bookings').doc();
+        t.set(newBookingRef, {
+          itemId: itemData.itemId, itemName: itemData.name, itemType: itemData.type,
+          studentId, studentName, yearOfStudy, quantity: qty, consumable: true, status: "Consumed",
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return { message: "เบิกสำเร็จ" };
+      } else {
+        if (itemData.status === 'Borrowed') throw new Error("ถูกยืมไปแล้ว");
+        t.update(itemRef, { status: 'Borrowed' });
+        const newBookingRef = db.collection('bookings').doc();
+        t.set(newBookingRef, {
+          itemId: itemData.itemId, itemName: itemData.name, itemType: itemData.type,
+          studentId, studentName, yearOfStudy, startTime, endTime, status: "Active",
+          createdAt: admin.firestore.FieldValue.serverTimestamp()
+        });
+        return { message: "ยืมสำเร็จ" };
+      }
+    });
+
+    // บันทึก user ลง collection users ด้วย (best-effort, ไม่ block response)
+    db.collection('users').doc(studentId).set({
+      studentId, fullName: studentName, yearOfStudy,
+      lastBorrowAt: admin.firestore.FieldValue.serverTimestamp()
+    }, { merge: true }).catch(e => console.error('user upsert err:', e.message));
+
+    res.json(result);
+  } catch (error) { res.status(400).json({ error: error.message }); }
 });
 
 app.post('/api/return', async (req, res) => {
@@ -281,10 +293,8 @@ app.get('/api/my-bookings/:studentId', async (req, res) => {
 });
 
 // ============================================================
-// [8] PROTECTED ADMIN ROUTES — ต้องมี JWT token ทุก endpoint
+// [8] PROTECTED ADMIN ROUTES
 // ============================================================
-// ก่อนแก้: ไม่มี middleware ป้องกัน
-// หลังแก้: ทุก route ใต้ /api/admin/* ต้องผ่าน authenticateAdmin
 
 app.get('/api/admin/all-data', authenticateAdmin, async (req, res) => {
   try {
@@ -468,7 +478,6 @@ app.post('/api/admin/roster/:year/seed', authenticateAdmin, async (req, res) => 
 
 app.post('/api/admin/settings/layout', authenticateAdmin, async (req, res) => {
   try {
-    // อนุญาตเฉพาะ field typeOrder
     const typeOrder = Array.isArray(req.body.typeOrder) ? req.body.typeOrder.map(t => sanitizeString(t)) : [];
     await db.collection('settings').doc('layout').set({ typeOrder }, { merge: true });
     res.json({ message: "บันทึกการจัดเรียงเรียบร้อย" });
@@ -477,7 +486,6 @@ app.post('/api/admin/settings/layout', authenticateAdmin, async (req, res) => {
 
 app.post('/api/admin/settings/config', authenticateAdmin, async (req, res) => {
   try {
-    // อนุญาตเฉพาะ field manualUnlock
     const manualUnlock = Boolean(req.body.manualUnlock);
     await db.collection('settings').doc('config').set({ manualUnlock }, { merge: true });
     res.json({ message: manualUnlock ? "ปลดล็อกระบบชั่วคราวแล้ว" : "ปิดระบบชั่วคราวแล้ว" });
@@ -485,11 +493,8 @@ app.post('/api/admin/settings/config', authenticateAdmin, async (req, res) => {
 });
 
 // ============================================================
-// [9] DANGER ZONE — เพิ่ม rate limit + จำกัด collection ที่ลบได้
+// [9] DANGER ZONE
 // ============================================================
-// ก่อนแก้: ลบ collection อะไรก็ได้ ไม่ต้อง auth
-// หลังแก้: ต้อง auth + rate limit + ลบได้แค่ bookings, users
-
 app.post('/api/admin/danger/reset', authenticateAdmin, dangerLimiter, async (req, res) => {
   try {
     const itemsSnap = await db.collection('items').get();
@@ -508,7 +513,6 @@ app.post('/api/admin/danger/clear/:collection', authenticateAdmin, dangerLimiter
   try {
     const coll = req.params.collection;
 
-    // ป้องกันไม่ให้ลบ collection ที่สำคัญ
     if (!ALLOWED_CLEAR_COLLECTIONS.includes(coll)) {
       return res.status(403).json({ error: `ไม่อนุญาตให้ลบ collection "${coll}"` });
     }
@@ -522,7 +526,7 @@ app.post('/api/admin/danger/clear/:collection', authenticateAdmin, dangerLimiter
 });
 
 // ============================================================
-// [10] FORCE RETURN (admin) — เพิ่ม auth
+// [10] FORCE RETURN
 // ============================================================
 app.post('/api/admin/force-return', authenticateAdmin, async (req, res) => {
   const bookingId = sanitizeString(req.body.bookingId, 100);
@@ -539,7 +543,7 @@ app.post('/api/admin/force-return', authenticateAdmin, async (req, res) => {
 });
 
 // ============================================================
-// [11] ERROR HANDLER — ไม่ให้ error message ละเอียดหลุดออกไป
+// [11] ERROR HANDLER
 // ============================================================
 app.use((err, req, res, next) => {
   console.error('Server error:', err.message);
