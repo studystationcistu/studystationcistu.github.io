@@ -1,7 +1,16 @@
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
-const serviceAccount = require('./firebase-key.json');
+let serviceAccount;
+if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+  // ถ้าทำงานบน Render (หรือระบบจำลอง) ให้ดึงจาก Environment Variable
+  serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
+} else {
+  // ถ้าทำงานบนเครื่องคอมเราเอง (Local) ให้ดึงจากไฟล์
+  serviceAccount = require('./firebase-key.json');
+}
+
+admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 
 admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
