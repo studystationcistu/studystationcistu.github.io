@@ -86,7 +86,7 @@ export default function Home() {
 
   const fetchConfig = async () => {
     try {
-      const res = await fetch("http://localhost:5001/api/settings/config");
+      const res = await fetch("https://studystation-api.onrender.com/api/settings/config");
       const data = await res.json();
       setConfig(data);
     } catch (e) { console.error(e); }
@@ -95,11 +95,11 @@ export default function Home() {
   const fetchItems = async () => {
     setLoading(true);
     try {
-      const resItems = await fetch("http://localhost:5001/api/items");
+      const resItems = await fetch("https://studystation-api.onrender.com/api/items");
       const dataItems = await resItems.json();
       setItemsCache(Array.isArray(dataItems) ? dataItems : []);
       
-      const resLayout = await fetch("http://localhost:5001/api/settings/layout");
+      const resLayout = await fetch("https://studystation-api.onrender.com/api/settings/layout");
       const dataLayout = await resLayout.json();
       setLayoutOrder(dataLayout.typeOrder || []);
     } catch (error) {
@@ -114,7 +114,7 @@ export default function Home() {
     if (!user) return;
     setLoading(true);
     try {
-      const response = await fetch(`http://localhost:5001/api/my-bookings/${user.studentId}`);
+      const response = await fetch(`https://studystation-api.onrender.com/api/my-bookings/${user.studentId}`);
       const data = await response.json();
       setMyBookings(Array.isArray(data) ? data : []);
     } catch (error) {
@@ -279,7 +279,7 @@ export default function Home() {
     }
 
     try {
-      const response = await fetch("http://localhost:5001/api/borrow", {
+      const response = await fetch("https://studystation-api.onrender.com/api/borrow", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -307,7 +307,7 @@ export default function Home() {
   const handleReturn = async (bookingId, itemId) => {
     if (!window.confirm("ยืนยันการคืนอุปกรณ์นี้ใช่ไหม")) return;
     try {
-      const response = await fetch("http://localhost:5001/api/return", {
+      const response = await fetch("https://studystation-api.onrender.com/api/return", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bookingId, itemId }), 
