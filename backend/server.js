@@ -5,16 +5,10 @@ const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
 
 // ============================================================
-// [1] CONFIGURATION — ดึงค่าจาก Environment Variables
+// [1] CONFIGURATION
 // ============================================================
-// ⚠️ ต้องตั้ง Environment Variables เหล่านี้บน Render:
-//   ADMIN_PASSWORD    — รหัสผ่าน admin (เช่น "MyStr0ngP@ss!")
-//   JWT_SECRET        — คีย์ลับสำหรับสร้าง token (เช่น random string 64 ตัว)
-//   FRONTEND_URL      — URL ของ frontend (เช่น "https://studystation.vercel.app")
-
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '4168';  // fallback สำหรับ dev เท่านั้น
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '4168';
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me-in-production';
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
@@ -31,20 +25,50 @@ const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 5001;
 
+// ★★★ [แก้จุดใหญ่ที่สุด] Render ใช้ proxy — ต้องตั้ง trust proxy
+// ถ้าไม่ตั้ง → express-rate-limit พัง → server ตอบ 500
+app.set('trust proxy', 1);
+
 // ============================================================
-// [2] CORS — ล็อกให้เฉพาะ frontend ของเราเท่านั้น
+// [2] CORS — ★ แก้ใหม่ให้ปลอดภัยและยืดหยุ่น
 // ============================================================
+function normalizeUrl(url) {
+  if (!url) return '';
+  return url.trim().replace(/\/$/, ''); // ตัด / ท้าย
+}
+
+// รองรับหลาย URL คั่นด้วย comma เช่น "https://a.vercel.app,https://b.vercel.app"
+const envFrontendUrls = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(normalizeUrl)
+  .filter(Boolean);
+
 const allowedOrigins = [
-  FRONTEND_URL,
-  'http://localhost:3000',  // สำหรับ dev เท่านั้น
+  ...envFrontendUrls,
+  'http://localhost:3000',
+  'http://localhost:3001',
 ];
+
+console.log('✅ Allowed CORS origins:', allowedOrigins);
 
 app.use(cors({
   origin: function (origin, callback) {
+    // อนุญาต request ที่ไม่มี origin (Postman, server-to-server)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    
+    const normalizedOrigin = normalizeUrl(origin);
+    
+    // ถ้าอยู่ใน whitelist → ผ่าน
+    if (allowedOrigins.includes(normalizedOrigin)) {
       return callback(null, true);
     }
+    
+    // รองรับ Vercel preview deployments (*.vercel.app) ทุก subdomain
+    if (normalizedOrigin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    
+    console.warn('❌ CORS blocked:', normalizedOrigin);
     return callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
@@ -57,7 +81,7 @@ app.use(express.json());
 // ============================================================
 const generalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300, // เพิ่มจาก 100 → 300
   message: { error: 'คำขอมากเกินไป กรุณารอสักครู่' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -82,7 +106,23 @@ const dangerLimiter = rateLimit({
 app.use('/api/', generalLimiter);
 
 // ============================================================
-// [4] JWT AUTHENTICATION MIDDLEWARE
+// [4] HEALTH CHECK — สำหรับ debug
+// ============================================================
+app.get('/', (req, res) => {
+  res.json({ 
+    status: 'ok', 
+    message: 'StudyStation API is running',
+    corsOrigins: allowedOrigins,
+    time: new Date().toISOString()
+  });
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString() });
+});
+
+// ============================================================
+// [5] JWT AUTH MIDDLEWARE
 // ============================================================
 function authenticateAdmin(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -109,7 +149,7 @@ function authenticateAdmin(req, res, next) {
 }
 
 // ============================================================
-// [5] INPUT VALIDATION HELPERS
+// [6] INPUT VALIDATION
 // ============================================================
 function sanitizeString(str, maxLen = 200) {
   if (typeof str !== 'string') return '';
@@ -143,7 +183,7 @@ function validateItemData(body) {
 const ALLOWED_CLEAR_COLLECTIONS = ['bookings', 'users'];
 
 // ============================================================
-// [6] ADMIN LOGIN
+// [7] ADMIN LOGIN
 // ============================================================
 app.post('/api/admin/login', loginLimiter, (req, res) => {
   const { password } = req.body;
@@ -166,34 +206,41 @@ app.post('/api/admin/login', loginLimiter, (req, res) => {
 });
 
 // ============================================================
-// [7] PUBLIC ROUTES
+// [8] PUBLIC ROUTES
 // ============================================================
-
 app.get('/api/items', async (req, res) => {
   try {
     const snapshot = await db.collection('items').get();
     const items = [];
     snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
     res.json(items);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('GET /api/items error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/settings/layout', async (req, res) => {
   try {
     const doc = await db.collection('settings').doc('layout').get();
     res.json(doc.exists ? doc.data() : { typeOrder: [] });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('GET /api/settings/layout error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/settings/config', async (req, res) => {
   try {
     const doc = await db.collection('settings').doc('config').get();
     res.json(doc.exists ? doc.data() : { manualUnlock: false });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('GET /api/settings/config error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// ★ [เพิ่มใหม่] — บันทึก/อัปเดต user เมื่อเข้าสู่ระบบ
-// เพื่อให้หน้า admin เห็นผู้ใช้ในระบบ
+// บันทึก/อัปเดต user
 app.post('/api/users/register', async (req, res) => {
   const studentId = sanitizeString(req.body.studentId, 20);
   const fullName = sanitizeString(req.body.fullName, 200);
@@ -208,10 +255,12 @@ app.post('/api/users/register', async (req, res) => {
       lastLoginAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
     res.json({ message: "บันทึกข้อมูลผู้ใช้สำเร็จ" });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('POST /api/users/register error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-// ★ [แก้ไข] — borrow ใช้ transaction ป้องกัน race condition
 app.post('/api/borrow', async (req, res) => {
   const itemId = sanitizeString(req.body.itemId, 100);
   const studentId = sanitizeString(req.body.studentId, 20);
@@ -227,7 +276,6 @@ app.post('/api/borrow', async (req, res) => {
   try {
     const itemRef = db.collection('items').doc(itemId);
 
-    // ใช้ transaction เพื่อป้องกัน 2 คนยืมพร้อมกัน
     const result = await db.runTransaction(async (t) => {
       const doc = await t.get(itemRef);
       if (!doc.exists) throw new Error("ไม่พบอุปกรณ์");
@@ -256,14 +304,16 @@ app.post('/api/borrow', async (req, res) => {
       }
     });
 
-    // บันทึก user ลง collection users ด้วย (best-effort, ไม่ block response)
     db.collection('users').doc(studentId).set({
       studentId, fullName: studentName, yearOfStudy,
       lastBorrowAt: admin.firestore.FieldValue.serverTimestamp()
     }, { merge: true }).catch(e => console.error('user upsert err:', e.message));
 
     res.json(result);
-  } catch (error) { res.status(400).json({ error: error.message }); }
+  } catch (error) {
+    console.error('POST /api/borrow error:', error.message);
+    res.status(400).json({ error: error.message });
+  }
 });
 
 app.post('/api/return', async (req, res) => {
@@ -277,7 +327,10 @@ app.post('/api/return', async (req, res) => {
     const itemsSnap = await db.collection('items').where('itemId', '==', itemId).get();
     if (!itemsSnap.empty) await itemsSnap.docs[0].ref.update({ status: "Available" });
     res.json({ message: "คืนสำเร็จ" });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('POST /api/return error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.get('/api/my-bookings/:studentId', async (req, res) => {
@@ -289,13 +342,15 @@ app.get('/api/my-bookings/:studentId', async (req, res) => {
     const myBookings = [];
     snapshot.forEach(doc => myBookings.push({ id: doc.id, ...doc.data() }));
     res.json(myBookings);
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('GET /api/my-bookings error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============================================================
-// [8] PROTECTED ADMIN ROUTES
+// [9] ADMIN ROUTES
 // ============================================================
-
 app.get('/api/admin/all-data', authenticateAdmin, async (req, res) => {
   try {
     const [itemsSnap, bookingsSnap, usersSnap, r1Snap, r2Snap, layoutSnap, configSnap] = await Promise.all([
@@ -313,7 +368,10 @@ app.get('/api/admin/all-data', authenticateAdmin, async (req, res) => {
       layoutOrder: layoutSnap.exists ? layoutSnap.data().typeOrder || [] : [],
       config: configSnap.exists ? configSnap.data() : { manualUnlock: false }
     });
-  } catch (error) { res.status(500).json({ error: error.message }); }
+  } catch (error) {
+    console.error('GET /api/admin/all-data error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/admin/items', authenticateAdmin, async (req, res) => {
@@ -493,7 +551,7 @@ app.post('/api/admin/settings/config', authenticateAdmin, async (req, res) => {
 });
 
 // ============================================================
-// [9] DANGER ZONE
+// [10] DANGER ZONE
 // ============================================================
 app.post('/api/admin/danger/reset', authenticateAdmin, dangerLimiter, async (req, res) => {
   try {
@@ -526,7 +584,7 @@ app.post('/api/admin/danger/clear/:collection', authenticateAdmin, dangerLimiter
 });
 
 // ============================================================
-// [10] FORCE RETURN
+// [11] FORCE RETURN
 // ============================================================
 app.post('/api/admin/force-return', authenticateAdmin, async (req, res) => {
   const bookingId = sanitizeString(req.body.bookingId, 100);
@@ -543,11 +601,17 @@ app.post('/api/admin/force-return', authenticateAdmin, async (req, res) => {
 });
 
 // ============================================================
-// [11] ERROR HANDLER
+// [12] ERROR HANDLER
 // ============================================================
 app.use((err, req, res, next) => {
   console.error('Server error:', err.message);
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'CORS not allowed for this origin' });
+  }
   res.status(500).json({ error: 'เกิดข้อผิดพลาดภายในเซิร์ฟเวอร์' });
 });
 
-app.listen(port, () => console.log(`Server running on port ${port}`));
+app.listen(port, () => {
+  console.log(`✅ Server running on port ${port}`);
+  console.log(`✅ Allowed origins:`, allowedOrigins);
+});
