@@ -1,18 +1,21 @@
 const express = require('express');
 const cors = require('cors');
 const admin = require('firebase-admin');
+
 let serviceAccount;
 if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-  // ถ้าทำงานบน Render (หรือระบบจำลอง) ให้ดึงจาก Environment Variable
+  // ถ้าทำงานบน Render ให้ดึงจาก Environment Variable
   serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
 } else {
   // ถ้าทำงานบนเครื่องคอมเราเอง (Local) ให้ดึงจากไฟล์
   serviceAccount = require('./firebase-key.json');
 }
 
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+// เช็กก่อนว่า Firebase เปิดหรือยัง ถ้ายังไม่เปิดค่อยสั่ง Initialize
+if (!admin.apps.length) {
+  admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
+}
 
-admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
 const db = admin.firestore();
 const app = express();
 const port = process.env.PORT || 5001;
