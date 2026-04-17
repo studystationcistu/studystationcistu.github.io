@@ -130,13 +130,21 @@ export default function Home() {
     if (savedUser) {
       setUser(JSON.parse(savedUser));
     }
+    // อัปเดตนาฬิกาทุก 30 วินาที
     const timer = setInterval(() => {
       setCurrentTime(nowHM());
-      fetchConfig();
     }, 30000);
+    // fetchConfig แค่ครั้งเดียวตอนเริ่ม
     fetchConfig();
     return () => clearInterval(timer);
   }, []);
+
+  // fetchConfig ทุก 60 วินาทีเฉพาะตอน login แล้ว
+  useEffect(() => {
+    if (!user) return;
+    const configTimer = setInterval(fetchConfig, 60000);
+    return () => clearInterval(configTimer);
+  }, [user]);
 
   useEffect(() => {
     if (user) {
@@ -145,7 +153,7 @@ export default function Home() {
     }
   }, [user, currentPage]);
 
-  const handleLogin = (e) => {
+const handleLogin = async (e) => {
     e.preventDefault();
     if (inputId.length !== 10) return alert("รหัสนักศึกษาต้องเป็นตัวเลข 10 หลัก");
     
@@ -163,6 +171,19 @@ export default function Home() {
     }
     
     const userData = { studentId: inputId, fullName: finalName, yearOfStudy: selectedYear };
+    
+    // ★ ส่งข้อมูลไปบันทึกลง DB ฝั่ง server
+    try {
+      await fetch("https://studystation-api.onrender.com/api/users/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(userData),
+      });
+    } catch (err) {
+      console.error("บันทึกผู้ใช้ไม่สำเร็จ:", err);
+      // ถึงจะ error ก็ให้ล็อกอินได้ ไม่ block
+    }
+    
     setUser(userData);
     localStorage.setItem("studystation_user", JSON.stringify(userData));
   };
@@ -286,10 +307,11 @@ export default function Home() {
           itemId: targetItemId,
           studentId: user.studentId,
           studentName: user.fullName,
+          yearOfStudy: user.yearOfStudy,
           qty: qtyToSend,
           startTime: finalStartTime,
           endTime: finalEndTime
-        }), 
+        }),
       });
       const data = await response.json();
       if (response.ok) {
