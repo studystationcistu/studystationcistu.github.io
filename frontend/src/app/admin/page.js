@@ -131,7 +131,7 @@ export default function AdminPage() {
   const fetchAllData = async (showRefreshToast = false) => {
     setIsRefreshing(true);
     try {
-      const res = await fetch("http://localhost:5001/api/admin/all-data");
+      const res = await fetch("https://studystation-api.onrender.com/api/admin/all-data");
       const data = await res.json();
       if(!res.ok) throw new Error(data.error);
       
@@ -173,7 +173,7 @@ export default function AdminPage() {
 
   const callApi = async (url, method = "POST", body = null) => {
     try {
-      const res = await fetch(`http://localhost:5001/api/admin/${url}`, {
+      const res = await fetch(`https://studystation-api.onrender.com/api/admin/${url}`, {
         method, headers: { "Content-Type": "application/json" },
         ...(body && { body: JSON.stringify(body) })
       });
@@ -206,7 +206,7 @@ export default function AdminPage() {
   const forceReturn = async (bid, iid) => {
     if(await showConfirm("บังคับคืน", "ตั้งสถานะเป็นคืนแล้ว?")) {
       try {
-        const res = await fetch("http://localhost:5001/api/return", {
+        const res = await fetch("https://studystation-api.onrender.com/api/return", {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ bookingId: bid, itemId: iid })
         });
