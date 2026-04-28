@@ -515,7 +515,7 @@ const handleLogin = async (e) => {
                     <span className="text-2xl float-anim">🏆</span>
                     อันดับผู้ยืมสูงสุด
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Top 10 ผู้ยืมเยอะที่สุดตลอดกาล</p>
+                  <p className="text-xs text-slate-500 mt-0.5">Top 3 ผู้ยืมเยอะที่สุดตลอดกาล</p>
                 </div>
               </div>
               
