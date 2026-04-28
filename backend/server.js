@@ -385,7 +385,7 @@ app.get('/api/leaderboard', async (req, res) => {
     // เรียงจากมากไปน้อย เอาแค่ Top 10
     const leaderboard = Object.values(counts)
       .sort((a, b) => b.totalCount - a.totalCount)
-      .slice(0, 10);
+      .slice(0, 3);
     
     res.json(leaderboard);
   } catch (error) {
