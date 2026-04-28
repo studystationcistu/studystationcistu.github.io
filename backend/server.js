@@ -347,7 +347,52 @@ app.get('/api/my-bookings/:studentId', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
+// ============================================================
+// [8.5] LEADERBOARD — อันดับผู้ยืมสูงสุดตลอดกาล
+// ============================================================
+app.get('/api/leaderboard', async (req, res) => {
+  try {
+    const snapshot = await db.collection('bookings').get();
+    
+    // นับจำนวนการยืมของแต่ละคน
+    const counts = {};
+    snapshot.forEach(doc => {
+      const b = doc.data();
+      if (!b.studentId) return;
+      
+      if (!counts[b.studentId]) {
+        counts[b.studentId] = {
+          studentId: b.studentId,
+          studentName: b.studentName || 'ไม่ระบุ',
+          yearOfStudy: b.yearOfStudy || '-',
+          totalCount: 0,      // จำนวนรายการทั้งหมด
+          borrowCount: 0,     // ยืม-คืน (กี่ครั้ง)
+          consumeCount: 0,    // เบิกวัสดุ (กี่ครั้ง)
+          totalQuantity: 0    // จำนวนชิ้นรวม (สำหรับเบิก)
+        };
+      }
+      
+      counts[b.studentId].totalCount += 1;
+      
+      if (b.consumable || b.status === 'Consumed') {
+        counts[b.studentId].consumeCount += 1;
+        counts[b.studentId].totalQuantity += (b.quantity || 1);
+      } else {
+        counts[b.studentId].borrowCount += 1;
+      }
+    });
+    
+    // เรียงจากมากไปน้อย เอาแค่ Top 10
+    const leaderboard = Object.values(counts)
+      .sort((a, b) => b.totalCount - a.totalCount)
+      .slice(0, 10);
+    
+    res.json(leaderboard);
+  } catch (error) {
+    console.error('GET /api/leaderboard error:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
 // ============================================================
 // [9] ADMIN ROUTES
 // ============================================================

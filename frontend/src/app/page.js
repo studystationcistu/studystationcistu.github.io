@@ -78,6 +78,7 @@ export default function Home() {
   
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState("home");
+  const [leaderboard, setLeaderboard] = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(nowHM());
   
@@ -125,6 +126,17 @@ export default function Home() {
     }
   };
 
+  const fetchLeaderboard = async () => {
+    try {
+      const res = await fetch("https://studystation-api.onrender.com/api/leaderboard");
+      const data = await res.json();
+      setLeaderboard(Array.isArray(data) ? data : []);
+    } catch (error) {
+      console.error("โหลด leaderboard ไม่ได้:", error);
+      setLeaderboard([]);
+    }
+  };
+
   useEffect(() => {
     const savedUser = localStorage.getItem("studystation_user");
     if (savedUser) {
@@ -146,9 +158,12 @@ export default function Home() {
     return () => clearInterval(configTimer);
   }, [user]);
 
-  useEffect(() => {
+useEffect(() => {
     if (user) {
-      if (currentPage === "home") fetchItems();
+      if (currentPage === "home") {
+        fetchItems();
+        fetchLeaderboard();
+      }
       if (currentPage === "bookings") fetchMyBookings();
     }
   }, [user, currentPage]);
@@ -489,7 +504,72 @@ const handleLogin = async (e) => {
             </div>
           </div>
         </div>
-
+{/* ===== LEADERBOARD: อันดับผู้ยืมสูงสุด ===== */}
+        {leaderboard.length > 0 && (
+          <div className="glass rounded-3xl card-shadow p-5 lg:p-6 mb-6 relative overflow-hidden">
+            <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-gradient-to-br from-amber-200 to-yellow-300 opacity-30 blur-2xl"></div>
+            <div className="relative">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
+                    <span className="text-2xl float-anim">🏆</span>
+                    อันดับผู้ยืมสูงสุด
+                  </h2>
+                  <p className="text-xs text-slate-500 mt-0.5">Top 10 ผู้ยืมเยอะที่สุดตลอดกาล</p>
+                </div>
+              </div>
+              
+              <div className="space-y-2">
+                {leaderboard.map((p, idx) => {
+                  const isMe = p.studentId === user.studentId;
+                  const medals = ["🥇", "🥈", "🥉"];
+                  const rankColor = 
+                    idx === 0 ? "from-yellow-300 to-amber-400" :
+                    idx === 1 ? "from-slate-300 to-gray-400" :
+                    idx === 2 ? "from-orange-300 to-amber-500" :
+                    "from-slate-200 to-slate-300";
+                  
+                  return (
+                    <div 
+                      key={p.studentId} 
+                      className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${
+                        isMe 
+                          ? 'bg-gradient-to-r from-rose-100 to-pink-100 border-2 border-rose-300 shadow-md' 
+                          : 'bg-white/50 hover:bg-white/80'
+                      }`}
+                    >
+                      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-xl bg-gradient-to-br ${rankColor} flex items-center justify-center text-lg lg:text-xl font-bold text-white shadow flex-shrink-0`}>
+                        {idx < 3 ? medals[idx] : `#${idx + 1}`}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-sm lg:text-base text-slate-800 truncate">
+                            {p.studentName}
+                          </p>
+                          {isMe && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500 text-white font-bold flex-shrink-0">
+                              คุณ
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[11px] lg:text-xs text-slate-500">
+                          ปี {p.yearOfStudy} • ยืม {p.borrowCount} • เบิก {p.consumeCount}
+                        </p>
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-lg lg:text-2xl font-bold gradient-text">
+                          {p.totalCount}
+                        </div>
+                        <div className="text-[10px] text-slate-500">ครั้ง</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+        {/* ===== END LEADERBOARD ===== */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
           {loading ? (
             <div className="col-span-full text-center py-12 text-slate-500">
