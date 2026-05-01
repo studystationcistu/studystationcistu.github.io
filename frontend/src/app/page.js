@@ -177,23 +177,10 @@ export default function Home() {
   };
 
 const fetchRecentActivities = async () => {
-    if (!user) return;
     try {
-      const res = await fetch(`https://studystation-api.onrender.com/api/my-bookings/${user.studentId}`);
+      const res = await fetch("https://studystation-api.onrender.com/api/recent-activities");
       const data = await res.json();
-      if (!Array.isArray(data)) return setRecentActivities([]);
-      
-      // เรียงจากใหม่ไปเก่า เอาแค่ 3 รายการล่าสุด
-      const sorted = data
-        .filter(b => b.createdAt)
-        .sort((a, b) => {
-          const ta = (a.createdAt._seconds || a.createdAt.seconds || 0);
-          const tb = (b.createdAt._seconds || b.createdAt.seconds || 0);
-          return tb - ta;
-        })
-        .slice(0, 3);
-      
-      setRecentActivities(sorted);
+      setRecentActivities(Array.isArray(data) ? data : []);
     } catch (error) {
       console.error("โหลดกิจกรรมล่าสุดไม่ได้:", error);
       setRecentActivities([]);
@@ -567,7 +554,7 @@ const handleLogin = async (e) => {
             </div>
           </div>
         </div>
-{/* ===== กิจกรรมล่าสุด ===== */}
+{/* ===== กิจกรรมล่าสุดของระบบ ===== */}
         {recentActivities.length > 0 && (
           <div className="glass rounded-3xl card-shadow p-5 lg:p-6 mb-6 relative overflow-hidden">
             <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-gradient-to-br from-sky-200 to-cyan-300 opacity-30 blur-2xl"></div>
@@ -576,16 +563,10 @@ const handleLogin = async (e) => {
                 <div>
                   <h2 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
                     <span className="text-2xl float-anim">⏱️</span>
-                    กิจกรรมล่าสุดของคุณ
+                    กิจกรรมล่าสุด
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">3 รายการที่คุณทำล่าสุด</p>
+                  <p className="text-xs text-slate-500 mt-0.5">3 รายการล่าสุดในระบบ</p>
                 </div>
-                <button 
-                  onClick={() => setCurrentPage("bookings")} 
-                  className="text-xs lg:text-sm text-rose-500 hover:text-rose-600 font-semibold whitespace-nowrap"
-                >
-                  ดูทั้งหมด →
-                </button>
               </div>
               
               <div className="space-y-2">
@@ -593,37 +574,50 @@ const handleLogin = async (e) => {
                   const eq = (Array.isArray(itemsCache) ? itemsCache.find(e => e.type === b.itemType) : null) || { color: 'from-slate-200 to-gray-300' };
                   const isConsumable = b.consumable || b.status === "Consumed";
                   const isReturned = b.status === "Returned";
+                  const isMe = b.studentId === user.studentId;
                   
-                  let statusLabel, statusColor;
+                  let actionLabel, statusColor;
                   if (isConsumable) {
-                    statusLabel = `เบิก ${b.quantity || 1} ชิ้น`;
+                    actionLabel = `เบิก ${b.quantity || 1} ชิ้น`;
                     statusColor = "bg-orange-100 text-orange-700";
                   } else if (isReturned) {
-                    statusLabel = "คืนแล้ว";
+                    actionLabel = "คืนแล้ว";
                     statusColor = "bg-emerald-100 text-emerald-700";
                   } else {
-                    statusLabel = "กำลังยืม";
+                    actionLabel = "กำลังยืม";
                     statusColor = "bg-amber-100 text-amber-700";
                   }
+                  
+                  // ตัดคำนำหน้าออกให้สวย เช่น "นางสาวเมนี่" -> "เมนี่"
+                  const cleanName = (b.studentName || "ไม่ระบุ")
+                    .replace(/^(นาย|นางสาว|นาง|เด็กชาย|เด็กหญิง)\s*/u, "");
                   
                   return (
                     <div 
                       key={b.id} 
-                      className="flex items-center gap-3 p-3 rounded-2xl bg-white/50 hover:bg-white/80 transition-all"
+                      className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${
+                        isMe 
+                          ? 'bg-gradient-to-r from-rose-50 to-pink-50 border border-rose-200' 
+                          : 'bg-white/50 hover:bg-white/80'
+                      }`}
                     >
                       <div className={`w-12 h-12 lg:w-14 lg:h-14 rounded-xl bg-gradient-to-br ${eq.color} flex items-center justify-center p-2 icon-wrap shadow-inner flex-shrink-0`}>
                         {renderIcon(b.itemType, eq.imageUrl)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="font-bold text-sm lg:text-base text-slate-800 truncate">
+                          {cleanName}
+                          {isMe && <span className="ml-1.5 text-[10px] px-1.5 py-0.5 rounded-full bg-rose-500 text-white font-bold">คุณ</span>}
+                        </p>
+                        <p className="text-[11px] lg:text-xs text-slate-600 truncate">
                           {b.itemName}
                         </p>
-                        <p className="text-[11px] lg:text-xs text-slate-500 truncate">
+                        <p className="text-[10px] lg:text-[11px] text-slate-400 truncate">
                           {fmtThaiTime(b.createdAt)}
                         </p>
                       </div>
                       <span className={`text-[10px] lg:text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap flex-shrink-0 ${statusColor}`}>
-                        {statusLabel}
+                        {actionLabel}
                       </span>
                     </div>
                   );
@@ -632,7 +626,7 @@ const handleLogin = async (e) => {
             </div>
           </div>
         )}
-        {/* ===== END กิจกรรมล่าสุด ===== */}
+        {/* ===== END กิจกรรมล่าสุดของระบบ ===== */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
           {loading ? (
             <div className="col-span-full text-center py-12 text-slate-500">

@@ -348,48 +348,42 @@ app.get('/api/my-bookings/:studentId', async (req, res) => {
   }
 });
 // ============================================================
-// [8.5] LEADERBOARD — อันดับผู้ยืมสูงสุดตลอดกาล
+// [8.5] RECENT ACTIVITIES — กิจกรรมล่าสุดของทั้งระบบ
 // ============================================================
-app.get('/api/leaderboard', async (req, res) => {
+app.get('/api/recent-activities', async (req, res) => {
   try {
     const snapshot = await db.collection('bookings').get();
     
-    // นับจำนวนการยืมของแต่ละคน
-    const counts = {};
+    const activities = [];
     snapshot.forEach(doc => {
-      const b = doc.data();
-      if (!b.studentId) return;
-      
-      if (!counts[b.studentId]) {
-        counts[b.studentId] = {
-          studentId: b.studentId,
-          studentName: b.studentName || 'ไม่ระบุ',
-          yearOfStudy: b.yearOfStudy || '-',
-          totalCount: 0,      // จำนวนรายการทั้งหมด
-          borrowCount: 0,     // ยืม-คืน (กี่ครั้ง)
-          consumeCount: 0,    // เบิกวัสดุ (กี่ครั้ง)
-          totalQuantity: 0    // จำนวนชิ้นรวม (สำหรับเบิก)
-        };
-      }
-      
-      counts[b.studentId].totalCount += 1;
-      
-      if (b.consumable || b.status === 'Consumed') {
-        counts[b.studentId].consumeCount += 1;
-        counts[b.studentId].totalQuantity += (b.quantity || 1);
-      } else {
-        counts[b.studentId].borrowCount += 1;
-      }
+      activities.push({ id: doc.id, ...doc.data() });
     });
     
-    // เรียงจากมากไปน้อย เอาแค่ Top 10
-    const leaderboard = Object.values(counts)
-      .sort((a, b) => b.totalCount - a.totalCount)
-      .slice(0, 3);
+    // เรียงจากใหม่ไปเก่า เอาแค่ 3 รายการ
+    const sorted = activities
+      .filter(b => b.createdAt)
+      .sort((a, b) => {
+        const ta = (a.createdAt._seconds || a.createdAt.seconds || 0);
+        const tb = (b.createdAt._seconds || b.createdAt.seconds || 0);
+        return tb - ta;
+      })
+      .slice(0, 3)
+      .map(b => ({
+        id: b.id,
+        itemName: b.itemName,
+        itemType: b.itemType,
+        studentName: b.studentName,
+        studentId: b.studentId,
+        yearOfStudy: b.yearOfStudy,
+        status: b.status,
+        consumable: b.consumable,
+        quantity: b.quantity,
+        createdAt: b.createdAt
+      }));
     
-    res.json(leaderboard);
+    res.json(sorted);
   } catch (error) {
-    console.error('GET /api/leaderboard error:', error.message);
+    console.error('GET /api/recent-activities error:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
