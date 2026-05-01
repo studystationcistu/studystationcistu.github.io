@@ -565,7 +565,7 @@ const handleLogin = async (e) => {
                     <span className="text-2xl float-anim">⏱️</span>
                     กิจกรรมล่าสุด
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">3 รายการล่าสุดในระบบ</p>
+                  <p className="text-xs text-slate-500 mt-0.5">รายการล่าสุดในระบบ</p>
                 </div>
               </div>
               
