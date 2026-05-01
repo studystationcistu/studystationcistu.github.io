@@ -58,6 +58,56 @@ function fmtDate(s) {
 }
 
 // ------------------------------------------
+// แปลงเวลาเป็นภาษาไทย เช่น "วันนี้ เวลา 13:30", "เมื่อวาน เวลา 14:00"
+// ------------------------------------------
+const THAI_DAYS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+const THAI_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+
+function fmtThaiTime(input) {
+  if (!input) return "-";
+  
+  // รองรับทั้ง Firestore Timestamp, ISO string, หรือ Date object
+  let d;
+  if (typeof input === "object" && (input._seconds || input.seconds)) {
+    d = new Date((input._seconds || input.seconds) * 1000);
+  } else {
+    d = new Date(input);
+  }
+  if (isNaN(d)) return "-";
+  
+  const now = new Date();
+  const pad = n => String(n).padStart(2, "0");
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  
+  // ตัดเอาเฉพาะวัน (ไม่เอาเวลา) เพื่อเปรียบเทียบ
+  const startOf = (date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const today = startOf(now);
+  const target = startOf(d);
+  const diffDays = Math.round((today - target) / (1000 * 60 * 60 * 24));
+  
+  // วันนี้
+  if (diffDays === 0) return `วันนี้ เวลา ${time}`;
+  
+  // เมื่อวาน
+  if (diffDays === 1) return `เมื่อวาน เวลา ${time}`;
+  
+  // ภายใน 7 วันที่ผ่านมา → บอกชื่อวัน
+  if (diffDays > 1 && diffDays < 7) {
+    return `วัน${THAI_DAYS[d.getDay()]} เวลา ${time}`;
+  }
+  
+  // เกิน 1 สัปดาห์ → บอกวัน + วันที่ + เดือน
+  // ถ้าเป็นปีเดียวกัน ไม่ต้องใส่ปี
+  if (d.getFullYear() === now.getFullYear()) {
+    return `วัน${THAI_DAYS[d.getDay()]}ที่ ${d.getDate()} ${THAI_MONTHS[d.getMonth()]} เวลา ${time}`;
+  }
+  
+  // ต่างปี ใส่ปีพ.ศ. ด้วย
+  const buddhistYear = d.getFullYear() + 543;
+  return `${d.getDate()} ${THAI_MONTHS[d.getMonth()]} ${buddhistYear} เวลา ${time}`;
+}
+
+// ------------------------------------------
 // [เพิ่มใหม่] ฟังก์ชันแสดงรูปภาพหรือไอคอน SVG
 // ------------------------------------------
 const renderIcon = (type, imgUrl) => {
@@ -78,7 +128,7 @@ export default function Home() {
   
   const [loading, setLoading] = useState(false);
   const [currentPage, setCurrentPage] = useState("home");
-  const [leaderboard, setLeaderboard] = useState([]);
+  const [recentActivities, setRecentActivities] = useState([]);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(nowHM());
   
@@ -126,14 +176,27 @@ export default function Home() {
     }
   };
 
-  const fetchLeaderboard = async () => {
+const fetchRecentActivities = async () => {
+    if (!user) return;
     try {
-      const res = await fetch("https://studystation-api.onrender.com/api/leaderboard");
+      const res = await fetch(`https://studystation-api.onrender.com/api/my-bookings/${user.studentId}`);
       const data = await res.json();
-      setLeaderboard(Array.isArray(data) ? data : []);
+      if (!Array.isArray(data)) return setRecentActivities([]);
+      
+      // เรียงจากใหม่ไปเก่า เอาแค่ 3 รายการล่าสุด
+      const sorted = data
+        .filter(b => b.createdAt)
+        .sort((a, b) => {
+          const ta = (a.createdAt._seconds || a.createdAt.seconds || 0);
+          const tb = (b.createdAt._seconds || b.createdAt.seconds || 0);
+          return tb - ta;
+        })
+        .slice(0, 3);
+      
+      setRecentActivities(sorted);
     } catch (error) {
-      console.error("โหลด leaderboard ไม่ได้:", error);
-      setLeaderboard([]);
+      console.error("โหลดกิจกรรมล่าสุดไม่ได้:", error);
+      setRecentActivities([]);
     }
   };
 
@@ -162,7 +225,7 @@ useEffect(() => {
     if (user) {
       if (currentPage === "home") {
         fetchItems();
-        fetchLeaderboard();
+        fetchRecentActivities();
       }
       if (currentPage === "bookings") fetchMyBookings();
     }
@@ -504,64 +567,64 @@ const handleLogin = async (e) => {
             </div>
           </div>
         </div>
-{/* ===== LEADERBOARD: อันดับผู้ยืมสูงสุด ===== */}
-        {leaderboard.length > 0 && (
+{/* ===== กิจกรรมล่าสุด ===== */}
+        {recentActivities.length > 0 && (
           <div className="glass rounded-3xl card-shadow p-5 lg:p-6 mb-6 relative overflow-hidden">
-            <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-gradient-to-br from-amber-200 to-yellow-300 opacity-30 blur-2xl"></div>
+            <div className="absolute -top-12 -right-12 w-40 h-40 rounded-full bg-gradient-to-br from-sky-200 to-cyan-300 opacity-30 blur-2xl"></div>
             <div className="relative">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h2 className="text-xl lg:text-2xl font-bold text-slate-800 flex items-center gap-2">
-                    <span className="text-2xl float-anim">🏆</span>
-                    อันดับผู้ยืมสูงสุด
+                    <span className="text-2xl float-anim">⏱️</span>
+                    กิจกรรมล่าสุดของคุณ
                   </h2>
-                  <p className="text-xs text-slate-500 mt-0.5">Top 3 ผู้ยืมเยอะที่สุดตลอดกาล</p>
+                  <p className="text-xs text-slate-500 mt-0.5">3 รายการที่คุณทำล่าสุด</p>
                 </div>
+                <button 
+                  onClick={() => setCurrentPage("bookings")} 
+                  className="text-xs lg:text-sm text-rose-500 hover:text-rose-600 font-semibold whitespace-nowrap"
+                >
+                  ดูทั้งหมด →
+                </button>
               </div>
               
               <div className="space-y-2">
-                {leaderboard.map((p, idx) => {
-                  const isMe = p.studentId === user.studentId;
-                  const medals = ["🥇", "🥈", "🥉"];
-                  const rankColor = 
-                    idx === 0 ? "from-yellow-300 to-amber-400" :
-                    idx === 1 ? "from-slate-300 to-gray-400" :
-                    idx === 2 ? "from-orange-300 to-amber-500" :
-                    "from-slate-200 to-slate-300";
+                {recentActivities.map((b) => {
+                  const eq = (Array.isArray(itemsCache) ? itemsCache.find(e => e.type === b.itemType) : null) || { color: 'from-slate-200 to-gray-300' };
+                  const isConsumable = b.consumable || b.status === "Consumed";
+                  const isReturned = b.status === "Returned";
+                  
+                  let statusLabel, statusColor;
+                  if (isConsumable) {
+                    statusLabel = `เบิก ${b.quantity || 1} ชิ้น`;
+                    statusColor = "bg-orange-100 text-orange-700";
+                  } else if (isReturned) {
+                    statusLabel = "คืนแล้ว";
+                    statusColor = "bg-emerald-100 text-emerald-700";
+                  } else {
+                    statusLabel = "กำลังยืม";
+                    statusColor = "bg-amber-100 text-amber-700";
+                  }
                   
                   return (
                     <div 
-                      key={p.studentId} 
-                      className={`flex items-center gap-3 p-3 rounded-2xl transition-all ${
-                        isMe 
-                          ? 'bg-gradient-to-r from-rose-100 to-pink-100 border-2 border-rose-300 shadow-md' 
-                          : 'bg-white/50 hover:bg-white/80'
-                      }`}
+                      key={b.id} 
+                      className="flex items-center gap-3 p-3 rounded-2xl bg-white/50 hover:bg-white/80 transition-all"
                     >
-                      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-xl bg-gradient-to-br ${rankColor} flex items-center justify-center text-lg lg:text-xl font-bold text-white shadow flex-shrink-0`}>
-                        {idx < 3 ? medals[idx] : `#${idx + 1}`}
+                      <div className={`w-12 h-12 lg:w-14 lg:h-14 rounded-xl bg-gradient-to-br ${eq.color} flex items-center justify-center p-2 icon-wrap shadow-inner flex-shrink-0`}>
+                        {renderIcon(b.itemType, eq.imageUrl)}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-sm lg:text-base text-slate-800 truncate">
-                            {p.studentName}
-                          </p>
-                          {isMe && (
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500 text-white font-bold flex-shrink-0">
-                              คุณ
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-[11px] lg:text-xs text-slate-500">
-                          ปี {p.yearOfStudy} • ยืม {p.borrowCount} • เบิก {p.consumeCount}
+                        <p className="font-bold text-sm lg:text-base text-slate-800 truncate">
+                          {b.itemName}
+                        </p>
+                        <p className="text-[11px] lg:text-xs text-slate-500 truncate">
+                          {fmtThaiTime(b.createdAt)}
                         </p>
                       </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="text-lg lg:text-2xl font-bold gradient-text">
-                          {p.totalCount}
-                        </div>
-                        <div className="text-[10px] text-slate-500">ครั้ง</div>
-                      </div>
+                      <span className={`text-[10px] lg:text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap flex-shrink-0 ${statusColor}`}>
+                        {statusLabel}
+                      </span>
                     </div>
                   );
                 })}
@@ -569,7 +632,7 @@ const handleLogin = async (e) => {
             </div>
           </div>
         )}
-        {/* ===== END LEADERBOARD ===== */}
+        {/* ===== END กิจกรรมล่าสุด ===== */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 lg:gap-5">
           {loading ? (
             <div className="col-span-full text-center py-12 text-slate-500">
